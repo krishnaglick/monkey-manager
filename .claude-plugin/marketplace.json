@@ -1,0 +1,13 @@
+{
+  "name": "monkey-manager",
+  "owner": {
+    "name": "unstoppable411"
+  },
+  "plugins": [
+    {
+      "name": "monkey-manager",
+      "source": ".",
+      "description": "Coordinate concurrent Claude Code sessions in one repo — advisory collision avoidance via lifecycle hooks, an MCP server, and a haiku scout agent."
+    }
+  ]
+}

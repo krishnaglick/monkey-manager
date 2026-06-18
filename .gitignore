@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+*.log
+.claude/settings.local.json
+.tokensave

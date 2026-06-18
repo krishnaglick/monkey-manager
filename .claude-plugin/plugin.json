@@ -1,0 +1,5 @@
+{
+  "name": "monkey-manager",
+  "version": "0.1.0",
+  "description": "Coordinate concurrent Claude sessions in one repo (advisory collision avoidance)."
+}
