@@ -30,11 +30,11 @@ if (fs.existsSync(settingsPath)) {
 
 settings.extraKnownMarketplaces ??= {};
 settings.extraKnownMarketplaces['monkey-manager'] = {
-  source: { source: 'local', path: installDir }
+  source: { source: 'directory', path: installDir }
 };
 
 settings.enabledPlugins ??= {};
-settings.enabledPlugins['monkey-manager@monkey-manager'] = 'user';
+settings.enabledPlugins['monkey-manager@monkey-manager'] = true;
 
 fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
