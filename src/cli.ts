@@ -63,19 +63,40 @@ export function runCommand(
     case 'on-pre-edit':
       if (sid && filePath) {
         heartbeat(db, sid, now);
+        // Check OTHER sessions first, THEN record our own intent. Order matters:
+        // check excludes the caller, so recording before checking would be safe
+        // too, but check-then-record keeps the warning strictly about peers and
+        // closes the TOCTOU window where two sessions pre-edit the same file
+        // before either reaches post-edit.
         const conflicts = check(db, sid, [filePath], 'repo', now, ttl, maxRows);
+        touch(db, sid, filePath, now);
         record(db, now, 'pre_edit', {
           session_id: sid,
           path: filePath,
           detail: `warned=${conflicts.length > 0}`,
         });
         if (conflicts.length) {
+          const body =
+            '⚠️ monkey-manager: another session is working here:\n' +
+            formatConflicts(conflicts, maxRows);
+          // A deliberate `claim` is a hard reservation: escalate to a blocking
+          // (but advisory) prompt via permissionDecision "ask" — never "deny",
+          // so the user can still proceed. Plain `touch` overlaps stay advisory
+          // (additionalContext, ignorable).
+          const hasClaim = conflicts.some((c) => c.kind === 'claim');
+          if (hasClaim) {
+            return JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'ask',
+                permissionDecisionReason: body,
+              },
+            });
+          }
           return JSON.stringify({
             hookSpecificOutput: {
               hookEventName: 'PreToolUse',
-              additionalContext:
-                '⚠️ monkey-manager: another session is working here:\n' +
-                formatConflicts(conflicts, maxRows),
+              additionalContext: body,
             },
           });
         }
