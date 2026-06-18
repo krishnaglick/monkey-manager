@@ -1,6 +1,6 @@
 import type { DB, SessionRow, Kind } from './db.js';
 import { resolveIdentity } from './repo.js';
-import { normalizePath, pathsOverlap } from './paths.js'; // normalizePath used in Task 5; pathsOverlap used in Task 6
+import { normalizeKey, pathsOverlap } from './paths.js';
 
 export type Scope = 'repo' | 'worktree';
 
@@ -63,7 +63,7 @@ export function whoami(
 export function touch(db: DB, session_id: string, absFilePath: string, now: number): void {
   const s = getSession(db, session_id);
   if (!s) return;
-  const path = normalizePath(absFilePath, s.worktree);
+  const path = normalizeKey(absFilePath, s.worktree);
   db.prepare(`
     INSERT OR IGNORE INTO work (session_id, repo, worktree, path, kind, note, created_at)
     VALUES (?, ?, ?, ?, 'touch', NULL, ?)
@@ -82,7 +82,7 @@ export function claim(
 ): Conflict[] {
   const s = getSession(db, session_id);
   if (!s) return [];
-  const path = normalizePath(rawPath, s.worktree);
+  const path = normalizeKey(rawPath, s.worktree);
   db.prepare(`
     INSERT INTO work (session_id, repo, worktree, path, kind, note, created_at)
     VALUES (?, ?, ?, ?, 'claim', ?, ?)
@@ -135,7 +135,7 @@ export function check(
   const out: Conflict[] = [];
   const seen = new Set<string>();
   for (const raw of paths) {
-    const qp = normalizePath(raw, me.worktree);
+    const qp = normalizeKey(raw, me.worktree);
     const bySession = new Map<string, JoinedRow>();
     for (const r of rows) {
       if (!pathsOverlap(qp, r.path)) continue;
