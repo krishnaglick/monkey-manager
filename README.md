@@ -11,7 +11,17 @@ Coordination is **advisory**: you get an automatic, non-blocking warning before 
 
 ## Install
 
-### Fastest — try it for one session (no install)
+### One-line install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krishnaglick/monkey-manager/main/install.sh | bash
+```
+
+Clones to `~/.local/share/monkey-manager`, builds, and registers the plugin in `~/.claude/settings.json`. Then start a new Claude Code session (or run `/reload-plugins`).
+
+Override install location: `MONKEY_MANAGER_INSTALL_DIR=/your/path bash install.sh`
+
+### Try it for one session (no install)
 
 ```bash
 git clone https://github.com/krishnaglick/monkey-manager monkey-manager
@@ -26,7 +36,7 @@ claude --plugin-dir "$(pwd)" "say hi"
 
 1. **Clone + build** (build is automatic via the `prepare` script):
    ```bash
-   git clone <repo-url> monkey-manager
+   git clone https://github.com/krishnaglick/monkey-manager monkey-manager
    cd monkey-manager
    npm install
    ls dist/cli.js dist/server.js   # both must exist
