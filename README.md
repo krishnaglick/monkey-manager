@@ -14,7 +14,7 @@ Coordination is **advisory**: you get an automatic, non-blocking warning before 
 ### Fastest — try it for one session (no install)
 
 ```bash
-git clone <repo-url> monkey-manager
+git clone https://github.com/krishnaglick/monkey-manager monkey-manager
 cd monkey-manager
 npm install                       # also builds (prepare script) → dist/
 claude --plugin-dir "$(pwd)" "say hi"
