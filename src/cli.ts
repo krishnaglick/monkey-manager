@@ -76,12 +76,27 @@ export function runCommand(
           detail: `warned=${conflicts.length > 0}`,
         });
         if (conflicts.length) {
+          const body =
+            '⚠️ monkey-manager: another session is working here:\n' +
+            formatConflicts(conflicts, maxRows);
+          // A deliberate `claim` is a hard reservation: escalate to a blocking
+          // (but advisory) prompt via permissionDecision "ask" — never "deny",
+          // so the user can still proceed. Plain `touch` overlaps stay advisory
+          // (additionalContext, ignorable).
+          const hasClaim = conflicts.some((c) => c.kind === 'claim');
+          if (hasClaim) {
+            return JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'ask',
+                permissionDecisionReason: body,
+              },
+            });
+          }
           return JSON.stringify({
             hookSpecificOutput: {
               hookEventName: 'PreToolUse',
-              additionalContext:
-                '⚠️ monkey-manager: another session is working here:\n' +
-                formatConflicts(conflicts, maxRows),
+              additionalContext: body,
             },
           });
         }

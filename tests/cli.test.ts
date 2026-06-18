@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { openDb } from '../src/db.js';
 import { runCommand } from '../src/cli.js';
+import { claim } from '../src/core.js';
 
 function freshDb() { return openDb(':memory:'); }
 
@@ -58,6 +59,32 @@ test('on-pre-edit never warns the caller against its own recorded intent', () =>
   runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/mine.gd` } }, 1001);
   const again = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/mine.gd` } }, 1002);
   expect(again).toBe('');
+});
+
+test('on-pre-edit: a touch conflict stays advisory (additionalContext, no decision)', () => {
+  const db = freshDb();
+  runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
+  runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1000);
+  runCommand(db, 'on-post-edit', { session_id: 'b', tool_input: { file_path: `${process.cwd()}/t.gd` } }, 1001);
+  const out = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/t.gd` } }, 1002);
+  const parsed = JSON.parse(out);
+  expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+  expect(parsed.hookSpecificOutput.additionalContext).toContain('monkey-manager');
+  expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
+});
+
+test('on-pre-edit: a claim conflict escalates to a blocking "ask" decision', () => {
+  const db = freshDb();
+  runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
+  runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1000);
+  // b deliberately claims the file (reservation), then a tries to edit it.
+  claim(db, 'b', `${process.cwd()}/c.gd`, 'b is refactoring', 1001, 1800);
+  const out = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/c.gd` } }, 1002);
+  const parsed = JSON.parse(out);
+  expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+  expect(parsed.hookSpecificOutput.permissionDecision).toBe('ask');
+  expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('monkey-manager');
+  expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('c.gd');
 });
 
 test('unknown command and missing fields are safe no-ops', () => {
