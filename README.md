@@ -126,12 +126,15 @@ node scripts/install-claude-md.mjs /path/to/repo/CLAUDE.md
 
 ## Uninstall
 
-```
-/plugin uninstall monkey-manager@monkey-manager
-/plugin marketplace remove monkey-manager
+```bash
+curl -fsSL https://raw.githubusercontent.com/krishnaglick/monkey-manager/main/uninstall.sh | bash
 ```
 
-(Or remove the `enabledPlugins` / `extraKnownMarketplaces` entries from `settings.json`.) Remove stored state with `rm ~/.claude/monkey-manager/state.db`.
+Removes the install directory (`~/.local/share/monkey-manager`) and the `extraKnownMarketplaces` / `enabledPlugins` entries from `~/.claude/settings.json`. Then start a new Claude Code session (or run `/reload-plugins`).
+
+Override install location: `MONKEY_MANAGER_INSTALL_DIR=/your/path bash uninstall.sh`
+
+To also remove stored state: `rm -rf ~/.claude/monkey-manager`
 
 ## Development
 
