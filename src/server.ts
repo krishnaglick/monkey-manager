@@ -27,11 +27,11 @@ export function makeTools(db: DB, sessionId: string, o: Opts) {
       record(db, o.now(), 'check', { session_id: sessionId, detail: `conflicts=${c.length}` });
       return c.length ? formatConflicts(c, o.maxRows) : 'CLEAR';
     },
-    claim: (a: { path: string; note: string }) => {
-      const c = claim(db, sessionId, a.path, a.note, o.now(), o.ttl, o.maxRows);
+    claim: (a: { feature: string; path?: string; note?: string }) => {
+      const c = claim(db, sessionId, a.feature, a.path ?? null, a.note ?? '', o.now(), o.ttl, o.maxRows);
       record(db, o.now(), 'claim', {
         session_id: sessionId,
-        path: a.path,
+        path: a.path ?? `feature://${a.feature}`,
         detail: `conflicts=${c.length}`,
       });
       return c.length ? 'CLAIMED (conflicts):\n' + formatConflicts(c, o.maxRows) : 'CLAIMED';
@@ -63,7 +63,11 @@ export function makeTools(db: DB, sessionId: string, o: Opts) {
 }
 
 /** Input schema for the `claim` tool. Exported so the note length cap is testable. */
-export const claimInputSchema = { path: z.string(), note: z.string().max(200) };
+export const claimInputSchema = {
+  feature: z.string().min(1).max(80),
+  path: z.string().optional(),
+  note: z.string().max(200).optional(),
+};
 
 function getSessionId(): string {
   const fromEnv = process.env.CLAUDE_CODE_SESSION_ID;
@@ -100,7 +104,7 @@ async function start(): Promise<void> {
     'claim',
     {
       description:
-        'Claim/annotate a file or directory (trailing /); re-claim the same path to update its note.',
+        'Claim a FEATURE you are about to work on (required) — collides with any sibling session on the same feature id, even across disjoint files. The id is canonicalized (case/punctuation/separator-insensitive: "§0.5.B", "0.5B" and "05b" all match), so pass whatever stable id your tracker gives; just be consistent. Optional path/dir (trailing /) adds file-level awareness. Re-claim the same feature to update its note.',
       inputSchema: claimInputSchema,
     },
     async (a) => ({ content: [{ type: 'text', text: tools.claim(a) }] }),

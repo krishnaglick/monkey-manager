@@ -1,6 +1,6 @@
 import type { DB, SessionRow, Kind } from './db.js';
 import { resolveIdentity } from './repo.js';
-import { normalizeKey, pathsOverlap } from './paths.js';
+import { normalizeKey, pathsOverlap, FEATURE_PREFIX } from './paths.js';
 
 export type Scope = 'repo' | 'worktree';
 
@@ -71,10 +71,20 @@ export function touch(db: DB, session_id: string, absFilePath: string, now: numb
   heartbeat(db, session_id, now);
 }
 
+/**
+ * The canonical key under which a feature id is claimed. Routed through
+ * normalizeKey so the engine's feature canonicalization (case/punctuation/
+ * separator-insensitive) is the single source of truth for both claim and check.
+ */
+export function featureKey(feature: string): string {
+  return normalizeKey(FEATURE_PREFIX + feature, '');
+}
+
 export function claim(
   db: DB,
   session_id: string,
-  rawPath: string,
+  feature: string,
+  rawPath: string | null,
   note: string,
   now: number,
   ttl: number,
@@ -82,15 +92,28 @@ export function claim(
 ): Conflict[] {
   const s = getSession(db, session_id);
   if (!s) return [];
-  const path = normalizeKey(rawPath, s.worktree);
-  db.prepare(`
+  const ins = db.prepare(`
     INSERT INTO work (session_id, repo, worktree, path, kind, note, created_at)
     VALUES (?, ?, ?, ?, 'claim', ?, ?)
     ON CONFLICT(repo, session_id, worktree, path, kind)
     DO UPDATE SET note = excluded.note
-  `).run(session_id, s.repo, s.worktree, path, note, now);
+  `);
+  const paths: string[] = [];
+  // Feature claim is the PRIMARY collision signal: two sessions on the same
+  // feature id collide even when their files are disjoint. The feature pseudo-path
+  // (`feature://<id>`) survives normalizePath verbatim and never matches a real
+  // file edit, so it surfaces only on an explicit claim/check — not the edit hook.
+  const fk = featureKey(feature);
+  ins.run(session_id, s.repo, s.worktree, fk, note, now);
+  paths.push(fk);
+  // Optional file/dir scope adds secondary file-level awareness.
+  if (rawPath) {
+    const path = normalizeKey(rawPath, s.worktree);
+    ins.run(session_id, s.repo, s.worktree, path, note, now);
+    paths.push(path);
+  }
   heartbeat(db, session_id, now);
-  return check(db, session_id, [path], 'repo', now, ttl, maxRows);
+  return check(db, session_id, paths, 'repo', now, ttl, maxRows);
 }
 
 export function release(db: DB, session_id: string): void {
@@ -198,6 +221,56 @@ export function active(
       ? [me.repo, cutoff, me.worktree, maxRows]
       : [me.repo, cutoff, maxRows];
   return db.prepare(sql).all(...args) as unknown as ActiveRow[];
+}
+
+export interface Sibling {
+  session_id: string;
+  repo_label: string;
+  branch: string | null;
+  worktree: string;
+  age_sec: number;
+}
+
+/**
+ * Other live sessions on the SAME branch — a free feature-collision signal that
+ * needs no claim call: two sessions on `wave-05b` are almost certainly the same
+ * work. Derived purely from `sessions.branch`, which the engine already records,
+ * so a convention that puts a canonical feature id in the branch name gets
+ * collision detection at SessionStart for nothing. Null branch (detached / no
+ * git) yields no siblings — there is no shared key to collide on.
+ */
+export function branchSiblings(
+  db: DB,
+  session_id: string,
+  now: number,
+  ttl: number,
+  maxRows: number,
+): Sibling[] {
+  const me = getSession(db, session_id);
+  if (!me || !me.branch) return [];
+  const cutoff = now - ttl;
+  const rows = db
+    .prepare(`
+      SELECT session_id, repo_label, branch, worktree, last_seen
+      FROM sessions
+      WHERE repo = ? AND branch = ? AND session_id != ? AND last_seen > ?
+      ORDER BY last_seen DESC
+      LIMIT ?
+    `)
+    .all(me.repo, me.branch, session_id, cutoff, maxRows) as unknown as Array<{
+    session_id: string;
+    repo_label: string;
+    branch: string | null;
+    worktree: string;
+    last_seen: number;
+  }>;
+  return rows.map((r) => ({
+    session_id: r.session_id,
+    repo_label: r.repo_label,
+    branch: r.branch,
+    worktree: r.worktree,
+    age_sec: now - r.last_seen,
+  }));
 }
 
 export function reap(db: DB, now: number, ttl: number): void {

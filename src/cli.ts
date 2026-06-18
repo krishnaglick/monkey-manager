@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { upsertBlock } from './claude-md.js';
 import { openDb, type DB } from './db.js';
-import { register, heartbeat, touch, endSession, reap, check } from './core.js';
-import { formatConflicts } from './format.js';
+import { register, heartbeat, touch, endSession, reap, check, branchSiblings } from './core.js';
+import { formatConflicts, formatBranchSiblings } from './format.js';
 import { record, reapEvents, stats } from './events.js';
 import { nowSec } from './clock.js';
 
@@ -35,14 +35,30 @@ export function runCommand(
   const filePath = p.tool_input?.file_path;
   switch (cmd) {
     case 'on-session-start': {
+      let warn = '';
       if (sid) {
         const s = register(db, { session_id: sid, cwd }, now);
         record(db, now, 'register', { session_id: sid, repo: s.repo });
+        // Same-branch siblings = a free feature-collision signal (no claim needed):
+        // surface ONCE at start, not per-edit. Computed before reap (live filter
+        // already excludes stale rows, so order is harmless either way).
+        const sibs = branchSiblings(db, sid, now, ttl, maxRows);
+        if (sibs.length) {
+          warn =
+            `⚠️ monkey-manager: ${sibs.length} other live session(s) on branch "${s.branch}":\n` +
+            formatBranchSiblings(sibs) +
+            '\nLikely the same feature. Coordinate (claim feature=<id>) or stop before duplicating work.';
+        }
       }
       reap(db, now, ttl);
       reapEvents(db, now);
       const claudeMdPath = join(cwd, 'CLAUDE.md');
       if (existsSync(claudeMdPath)) upsertBlock(claudeMdPath);
+      if (warn) {
+        return JSON.stringify({
+          hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: warn },
+        });
+      }
       return '';
     }
     case 'on-post-edit':

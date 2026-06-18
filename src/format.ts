@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import type { Conflict } from './core.js';
+import type { Conflict, Sibling } from './core.js';
 
 export function formatAge(sec: number): string {
   if (sec < 60) return `${sec}s`;
@@ -17,4 +17,10 @@ export function formatConflicts(cs: Conflict[], maxRows: number): string {
   });
   if (cs.length > maxRows) lines.push(`+${cs.length - maxRows} more`);
   return lines.join('\n');
+}
+
+export function formatBranchSiblings(ss: Sibling[]): string {
+  return ss
+    .map((s) => `${s.session_id.slice(0, 8)} [${basename(s.worktree)}] (${formatAge(s.age_sec)} ago)`)
+    .join('\n');
 }

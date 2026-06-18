@@ -20,7 +20,7 @@ Refined from the original seven, made precise:
 1. **R1 — Register on start.** On session creation, a `SessionStart` hook records the session with a stable id and its repo/worktree location. Identity resolved here is **frozen** for the session.
 2. **R2 — Track work automatically.** A `PostToolUse` hook on `Edit`/`Write`/`MultiEdit` records each touched file path for the session — no agent action required.
 3. **R3 — Warn on collision automatically.** A `PreToolUse` hook on `Edit`/`Write`/`MultiEdit` checks the target file against other live sessions and emits an advisory warning *only when a real conflict exists* (silent and non-blocking otherwise). This is what makes coordination fire-and-forget — it does not depend on the agent remembering to query.
-4. **R4 — Track work explicitly (optional).** An agent may register a forward-looking claim on a path (or directory) with a short note, and query arbitrary paths, via the MCP server.
+4. **R4 — Track work explicitly.** An agent registers a forward-looking claim keyed on a **required feature id** (stored as `feature://<id>`) — the primary collision signal, which collides with any sibling session on the same feature even across disjoint files — plus an optional file/dir path for secondary file-level awareness, with a short note. The feature id is **canonicalized by the engine** (lowercase, strip non-alphanumerics) on both claim and check, so near-miss spellings (`§0.5.B` / `0.5B` / `05b`) collide while distinct ids (`payment-v2` vs `checkout-v2`) stay separate — domain-specific reductions remain the caller's job. Arbitrary paths remain queryable via the MCP server.
 5. **R5 — Queryable both ways.** All state is reachable from the MCP server *and* from the hook scripts, because both import one shared core module.
 6. **R6 — SQLite.** State lives in a single SQLite database.
 7. **R7 — Repo namespacing.** Every row is namespaced to a stable repo identity, derived so that all worktrees of a repo share it.
@@ -108,7 +108,7 @@ There is no `released_at` and no per-row `last_seen`: release and cleanup **dele
 | R2 | `PostToolUse` (`Edit\|Write\|MultiEdit`) | Upsert a `touch` row (path from `tool_input.file_path`, made worktree-relative; deduped by the unique index — refresh nothing, ignore if present). Bump `last_seen`. |
 | R10 | `Stop` | Bump `last_seen` **only** — no release. Stop fires at the end of every turn, so it is a reliable liveness heartbeat even for read/think-only turns. |
 | R10 | any MCP tool call | Bump `last_seen`. |
-| R3/R4 | MCP `claim` | Upsert a `claim` row (path or dir + note); re-claim overwrites the note, leaves `created_at`. |
+| R3/R4 | MCP `claim` | Upsert a `feature://<id>` claim row (required) + an optional path/dir row, both noted; re-claim overwrites the note, leaves `created_at`. |
 | R9 | `SessionEnd` | In one transaction: delete this session's `work` rows, then delete its `sessions` row. |
 | R10 | lazy reap (on `SessionStart` and on every read/write path) | Delete `work` whose session is missing or stale (`last_seen < now - TTL`); delete stale `sessions` rows. |
 

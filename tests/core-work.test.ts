@@ -24,29 +24,38 @@ test('touch on unknown session is a no-op', () => {
   expect(db.prepare('SELECT count(*) c FROM work').get()).toMatchObject({ c: 0 });
 });
 
-test('claim records a claim row with note', () => {
+test('claim records a feature row plus a file row, both noted', () => {
   const { db } = setup();
-  claim(db, 's1', 'combat/ai/', 'AI refactor', 1001, 1800);
-  const rows = db.prepare("SELECT * FROM work WHERE kind='claim'").all() as any[];
-  expect(rows).toHaveLength(1);
-  expect(rows[0].path).toBe('combat/ai/');
-  expect(rows[0].note).toBe('AI refactor');
+  claim(db, 's1', 'ai-refactor', 'combat/ai/', 'AI refactor', 1001, 1800);
+  const rows = db.prepare("SELECT * FROM work WHERE kind='claim' ORDER BY path").all() as any[];
+  // feature id is canonicalized by the engine: 'ai-refactor' -> 'airefactor'
+  expect(rows.map((r) => r.path)).toEqual(['combat/ai/', 'feature://airefactor']);
+  expect(rows.every((r) => r.note === 'AI refactor')).toBe(true);
+});
+
+test('claim with no path records only the (canonical) feature row', () => {
+  const { db } = setup();
+  claim(db, 's1', 'AI-Refactor', null, 'note', 1001, 1800);
+  const rows = db.prepare("SELECT path FROM work WHERE kind='claim'").all() as any[];
+  expect(rows.map((r) => r.path)).toEqual(['feature://airefactor']);
 });
 
 test('release deletes only this session claims, not touches', () => {
   const { db, worktree } = setup();
-  claim(db, 's1', 'combat/ai/', 'x', 1001, 1800);
+  claim(db, 's1', 'ai', 'combat/ai/', 'x', 1001, 1800);
   touch(db, 's1', `${worktree}/a/b.gd`, 1001);
   release(db, 's1');
   expect(db.prepare("SELECT count(*) c FROM work WHERE kind='claim'").get()).toMatchObject({ c: 0 });
   expect(db.prepare("SELECT count(*) c FROM work WHERE kind='touch'").get()).toMatchObject({ c: 1 });
 });
 
-test('re-claim updates the note, keeps one row, preserves created_at', () => {
+test('re-claim updates the note, keeps one row per path, preserves created_at', () => {
   const { db } = setup();
-  claim(db, 's1', 'combat/ai/', 'first', 1001, 1800);
-  claim(db, 's1', 'combat/ai/', 'second', 1005, 1800); // same path, later clock
-  const rows = db.prepare("SELECT * FROM work WHERE kind='claim'").all() as any[];
+  claim(db, 's1', 'ai', 'combat/ai/', 'first', 1001, 1800);
+  claim(db, 's1', 'ai', 'combat/ai/', 'second', 1005, 1800); // same feature+path, later clock
+  const rows = db
+    .prepare("SELECT * FROM work WHERE kind='claim' AND path='combat/ai/'")
+    .all() as any[];
   expect(rows).toHaveLength(1); // upsert, not a second row
   expect(rows[0].note).toBe('second'); // note overwritten
   expect(rows[0].created_at).toBe(1001); // age anchored to FIRST claim, not bumped

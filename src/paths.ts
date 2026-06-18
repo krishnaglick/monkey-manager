@@ -40,12 +40,34 @@ export function resolveWorktreeRoot(filePath: string): string | null {
   return root;
 }
 
+/** Prefix marking a feature claim (vs a file path) in the work table. */
+export const FEATURE_PREFIX = 'feature://';
+
+/**
+ * Canonicalize a feature id so near-miss spellings collide: lowercase, then drop
+ * everything that is not a letter or digit. This is the engine's vendor-neutral
+ * normalization — it collapses case, punctuation and separators
+ * (`§0.5.B` / `0.5B` / `0.5.b` / `05B` all → `05b`; `Issue #412` / `issue-412` →
+ * `issue412`) WITHOUT eating words, so distinct ids like `payment-v2` vs
+ * `checkout-v2` stay distinct. Domain-specific reductions (e.g. dropping a name
+ * suffix from a roadmap section) belong in the caller, not here. Falls back to a
+ * trimmed-lowercased form if stripping leaves nothing.
+ */
+export function canonFeature(feature: string): string {
+  const c = feature.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return c || feature.trim().toLowerCase();
+}
+
 /**
  * Normalize a file to a repo-stable key. Absolute paths are made relative to
  * the file's OWN git worktree root (so siblings in other worktrees collide),
  * falling back to the session's frozen worktree root when git can't resolve it.
+ * A `feature://<id>` key is canonicalized instead — never touched as a file path.
  */
 export function normalizeKey(filePath: string, sessionWorktree: string): string {
+  if (filePath.startsWith(FEATURE_PREFIX)) {
+    return FEATURE_PREFIX + canonFeature(filePath.slice(FEATURE_PREFIX.length));
+  }
   const root = isAbsolute(filePath)
     ? (resolveWorktreeRoot(filePath) ?? sessionWorktree)
     : sessionWorktree;

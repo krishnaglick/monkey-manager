@@ -11,6 +11,26 @@ test('on-session-start registers the session', () => {
   expect(db.prepare('SELECT count(*) c FROM sessions').get()).toMatchObject({ c: 1 });
 });
 
+test('on-session-start warns when a same-branch sibling is already live', () => {
+  const db = freshDb();
+  runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
+  runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1000);
+  // Force a shared branch deterministically (independent of the test repo's HEAD).
+  db.prepare("UPDATE sessions SET branch='wave-zz' WHERE session_id IN ('a','b')").run();
+  // Re-running start for 'b' heartbeats (keeps branch) and recomputes siblings.
+  const out = runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1001);
+  const parsed = JSON.parse(out);
+  expect(parsed.hookSpecificOutput.hookEventName).toBe('SessionStart');
+  expect(parsed.hookSpecificOutput.additionalContext).toContain('monkey-manager');
+  expect(parsed.hookSpecificOutput.additionalContext).toContain('wave-zz');
+});
+
+test('on-session-start is silent (empty) for a solo session', () => {
+  const db = freshDb();
+  const out = runCommand(db, 'on-session-start', { session_id: 'solo', cwd: process.cwd() }, 1000);
+  expect(out).toBe('');
+});
+
 test('on-post-edit records a touch', () => {
   const db = freshDb();
   runCommand(db, 'on-session-start', { session_id: 'cli1', cwd: process.cwd() }, 1000);
@@ -78,7 +98,7 @@ test('on-pre-edit: a claim conflict escalates to a blocking "ask" decision', () 
   runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
   runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1000);
   // b deliberately claims the file (reservation), then a tries to edit it.
-  claim(db, 'b', `${process.cwd()}/c.gd`, 'b is refactoring', 1001, 1800);
+  claim(db, 'b', 'refactor-c', `${process.cwd()}/c.gd`, 'b is refactoring', 1001, 1800);
   const out = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/c.gd` } }, 1002);
   const parsed = JSON.parse(out);
   expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse');

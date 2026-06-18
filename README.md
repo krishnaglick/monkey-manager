@@ -95,7 +95,22 @@ Open **two** Claude Code sessions in the **same repo**:
    The edit still goes through (advisory only) — B just sees the conflict and can coordinate.
 3. From B, ask Claude to *“call monkey-manager `check` with paths `["src/foo.ts"]`”* (or `active`) to see A's work explicitly.
 
-To reserve an area **before** working — without spending main-context tokens — dispatch the bundled cheap agent: *“use the monkey-manager-scout agent to claim `src/foo.ts` with note ‘refactoring auth’.”* A `claim` carries a short note (≤200 chars) describing the work; re-claiming the same path just updates the note (the claim's age is preserved).
+To reserve work **before** starting — without spending main-context tokens — dispatch the bundled cheap agent: *“use the monkey-manager-scout agent to claim feature `auth-refactor`, path `src/foo.ts`, note ‘refactoring auth’.”* A `claim` **requires a feature id** — its primary collision key, which collides with any sibling session on the same feature even when their files don't overlap — plus an optional path/dir for file-level awareness and a short note (≤200 chars). The id is **canonicalized** (case/punctuation-insensitive: `§0.5.B` / `0.5B` / `05b` all match; `payment-v2` and `checkout-v2` stay distinct), so pass whatever stable id your tracker gives. Re-claiming the same feature updates the note (the claim's age is preserved).
+
+## Example workflows (bundled skills)
+
+Two example skills ship with the plugin and are auto-discovered — read them for the
+intended usage patterns, then adapt to your project:
+
+- **`feature-claim`** — a single session reserving a feature before editing when other
+  sessions may be live.
+- **`fleet-dispatch`** — an orchestrator claim-gating several parallel agents across
+  worktrees so no two duplicate the same work.
+
+Both center on the one rule: `claim` requires a **reproducible feature id** (the primary
+collision key — collides even across disjoint files). `fleet-dispatch` shows the
+derive-the-id-in-one-place pattern that stops two sessions picking different slugs for
+the same work.
 
 ## Configuration
 
