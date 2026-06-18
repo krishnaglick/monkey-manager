@@ -36,6 +36,30 @@ test('on-session-end clears the session', () => {
   expect(db.prepare('SELECT count(*) c FROM sessions').get()).toMatchObject({ c: 0 });
 });
 
+test('on-pre-edit records the caller intent so a near-simultaneous peer sees it (TOCTOU)', () => {
+  const db = freshDb();
+  runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
+  runCommand(db, 'on-session-start', { session_id: 'b', cwd: process.cwd() }, 1000);
+  // a pre-edits a file no one has touched -> no warning, but intent is now recorded.
+  const aOut = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/race.gd` } }, 1001);
+  expect(aOut).toBe('');
+  const work = db.prepare("SELECT * FROM work WHERE session_id='a'").all() as any[];
+  expect(work).toHaveLength(1); // intent reserved on pre-edit, not only on post-edit
+  // b pre-edits the SAME file before a's post-edit -> now warns because a's intent is on record.
+  const bOut = runCommand(db, 'on-pre-edit', { session_id: 'b', tool_input: { file_path: `${process.cwd()}/race.gd` } }, 1002);
+  expect(bOut).toContain('monkey-manager');
+  expect(bOut).toContain('race.gd');
+});
+
+test('on-pre-edit never warns the caller against its own recorded intent', () => {
+  const db = freshDb();
+  runCommand(db, 'on-session-start', { session_id: 'a', cwd: process.cwd() }, 1000);
+  // First pre-edit records intent; a SECOND pre-edit of the same file must stay silent.
+  runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/mine.gd` } }, 1001);
+  const again = runCommand(db, 'on-pre-edit', { session_id: 'a', tool_input: { file_path: `${process.cwd()}/mine.gd` } }, 1002);
+  expect(again).toBe('');
+});
+
 test('unknown command and missing fields are safe no-ops', () => {
   const db = freshDb();
   expect(runCommand(db, 'bogus', {}, 1000)).toBe('');

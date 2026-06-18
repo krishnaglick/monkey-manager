@@ -63,7 +63,13 @@ export function runCommand(
     case 'on-pre-edit':
       if (sid && filePath) {
         heartbeat(db, sid, now);
+        // Check OTHER sessions first, THEN record our own intent. Order matters:
+        // check excludes the caller, so recording before checking would be safe
+        // too, but check-then-record keeps the warning strictly about peers and
+        // closes the TOCTOU window where two sessions pre-edit the same file
+        // before either reaches post-edit.
         const conflicts = check(db, sid, [filePath], 'repo', now, ttl, maxRows);
+        touch(db, sid, filePath, now);
         record(db, now, 'pre_edit', {
           session_id: sid,
           path: filePath,
