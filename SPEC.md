@@ -127,7 +127,7 @@ Output is terse and **bounded**: filtering and overlap are computed in SQL/core,
      ui/hud.gd         sess-ghi  main                    touch                       2m
      # stats/job.gd omitted -> free
   ```
-- **`claim(path, note)`** — register or **update** an advisory note on a file or directory (trailing `/`). Latest-only: re-claiming the same path overwrites the note (the displayed age stays anchored to the first claim). The note is capped at 200 characters. Returns any current conflicts. Reaped with the session (TTL/SessionEnd) like all work.
+- **`claim(feature, path?, note?)`** — reserve work. `feature` is **required** and is the primary collision key: it is stored as a `feature://<id>` row, so two sessions claiming the same feature collide **even when their files are disjoint**. The id is **canonicalized** by the engine (lowercase, strip punctuation/separators), so `§0.5.B`, `0.5B`, `05b` all match while `payment-v2` and `checkout-v2` stay distinct — pass the raw tracker id. An optional `path` (file, or directory with trailing `/`) adds file-level awareness. Latest-only: re-claiming the same `feature` overwrites the note (displayed age stays anchored to the first claim). The note is capped at 200 characters. Returns any current conflicts. Reaped with the session (TTL/SessionEnd) like all work.
 - **`release()`** — delete this session's **claims** (no argument). Touches are auto-managed (recorded on edit, cleared at SessionEnd/TTL); they are not manually released.
 - **`active(scope = "repo" | "worktree" = "repo")`** — the bounded board of active work in scope.
 - **`whoami`** — this session's `session_id`, `repo_label`, `worktree`, `branch`. (Timestamps omitted.)
