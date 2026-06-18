@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { openDb, type DB } from './db.js';
 import { register, heartbeat, claim, release, check, active, whoami, reap } from './core.js';
-import { record, reapEvents } from './events.js';
+import { record, reapEvents, stats } from './events.js';
 import { formatConflicts } from './format.js';
 import { resolveIdentity } from './repo.js';
 import { nowSec } from './clock.js';
@@ -58,6 +58,7 @@ export function makeTools(db: DB, sessionId: string, o: Opts) {
         ? `${w.session_id.slice(0, 8)} ${w.repo_label} ${w.branch ?? '-'} ${w.worktree}`
         : 'unknown';
     },
+    stats: (_a: Record<string, never>) => stats(db, o.now()),
   };
 }
 
@@ -121,6 +122,11 @@ async function start(): Promise<void> {
     'whoami',
     { description: 'Show this session identity.', inputSchema: {} },
     async () => ({ content: [{ type: 'text', text: tools.whoami({}) }] }),
+  );
+  server.registerTool(
+    'stats',
+    { description: 'Show usage stats: event counts (24h + total) and live sessions.', inputSchema: {} },
+    async () => ({ content: [{ type: 'text', text: tools.stats({}) }] }),
   );
 
   await server.connect(new StdioServerTransport());
