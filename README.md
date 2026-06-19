@@ -1,8 +1,30 @@
 # monkey-manager
 
-Coordinate **concurrent Claude Code sessions** working in the same repo so they don't collide on the same files. Ships lifecycle hooks + an MCP server + a haiku "scout" agent, backed by a local SQLite database.
+Coordinate **concurrent Claude Code sessions** — across terminals, worktrees, and parallel agent fleets — so they don't duplicate or collide on the same work. Ships lifecycle hooks + an MCP server + a haiku "scout" agent, backed by a local SQLite database.
 
-Coordination is **advisory**: you get an automatic, non-blocking warning before editing a file another live session is already working on. Nothing is ever blocked — sessions just *know*.
+## Three layers of collision protection
+
+All three fire automatically. You get them for free just by installing the plugin.
+
+**1. Feature-level** — the primary dedup guard.  
+`claim feature=<id>` reserves a unit of work keyed on a stable id. Two sessions claiming the same feature **collide even when their files are completely disjoint** — catches "we're both starting the same feature" before a single line of code is written. The engine canonicalizes ids (case/punctuation-insensitive: `§0.5.B`, `0.5B`, `05b` all match; `payment-v2` and `checkout-v2` stay distinct), so pass whatever your tracker gives.
+
+**2. Branch-level** — zero-config, fires at session start.  
+When a session opens in a repo where another live session is already on the same branch, you're warned immediately — likely a duplicate effort on the same feature.
+
+**3. File-level** — automatic on every edit.  
+Before any `Edit`/`Write`/`MultiEdit`, the pre-edit hook checks whether another live session is already touching that file and injects an advisory warning if so. After the edit lands, the post-edit hook records the file for other sessions to see. No agent action required.
+
+Coordination is **advisory**: warnings surface, nothing is ever blocked. Sessions *know* and can coordinate; they're not gated.
+
+## Why it matters for multi-worktree and multi-agent work
+
+Running a fleet of parallel agents across git worktrees is powerful, but the risk is duplicate or conflicting work that only surfaces during integration. monkey-manager closes that gap:
+
+- **Worktree-aware**: all worktrees of a repo share one DB and one namespace, so a session in `wt-auth` sees claims from `wt-payments`.
+- **Fleet dedup**: an orchestrator can claim each agent's feature *before* launching it and skip or surface any unit that conflicts — catching duplicates before the agent hours are spent.
+- **Crash-safe**: every hook call heartbeats the session. Stale sessions (past `MONKEY_MANAGER_TTL_MIN`, default 30 min) are automatically reaped, so no dead claim blocks others forever.
+- **Low noise**: warnings only fire on real conflicts. Silent and non-blocking otherwise.
 
 ## Requirements
 
@@ -74,7 +96,7 @@ Then start a fresh session (or run `/reload-plugins` in an open one). For a stat
 
 ## Verify it works
 
-**Tools present** — in a session run `/mcp` and look for `monkey-manager` → `check`, `claim`, `release`, `active`, `whoami`. Or ask Claude: *“call the monkey-manager `whoami` tool.”* It returns your session id.
+**Tools present** — in a session run `/mcp` and look for `monkey-manager` → `check`, `claim`, `release`, `active`, `whoami`. Or ask Claude: *"call the monkey-manager `whoami` tool."* It returns your session id.
 
 **Hooks fired** — opening a session in any repo runs the `SessionStart` hook, which creates the DB:
 
@@ -82,7 +104,9 @@ Then start a fresh session (or run `/reload-plugins` in an open one). For a stat
 ls ~/.claude/monkey-manager/state.db   # exists after a session has started
 ```
 
-## See it work (the whole point)
+## See it work
+
+### File-level collision (automatic)
 
 Open **two** Claude Code sessions in the **same repo**:
 
@@ -93,24 +117,30 @@ Open **two** Claude Code sessions in the **same repo**:
    src/foo.ts	a1b2c3d4 main touch 30s
    ```
    The edit still goes through (advisory only) — B just sees the conflict and can coordinate.
-3. From B, ask Claude to *“call monkey-manager `check` with paths `["src/foo.ts"]`”* (or `active`) to see A's work explicitly.
+3. From B, ask Claude to *"call monkey-manager `check` with paths `["src/foo.ts"]`"* (or `active`) to see A's work explicitly.
 
-To reserve work **before** starting — without spending main-context tokens — dispatch the bundled cheap agent: *“use the monkey-manager-scout agent to claim feature `auth-refactor`, path `src/foo.ts`, note ‘refactoring auth’.”* A `claim` **requires a feature id** — its primary collision key, which collides with any sibling session on the same feature even when their files don't overlap — plus an optional path/dir for file-level awareness and a short note (≤200 chars). The id is **canonicalized** (case/punctuation-insensitive: `§0.5.B` / `0.5B` / `05b` all match; `payment-v2` and `checkout-v2` stay distinct), so pass whatever stable id your tracker gives. Re-claiming the same feature updates the note (the claim's age is preserved).
+### Feature-level collision (explicit claim)
+
+Reserve work **before** starting — without spending main-context tokens — by dispatching the bundled cheap scout agent:
+
+```
+use the monkey-manager-scout agent to claim feature=auth-refactor path=src/auth/ note="refactoring auth"
+```
+
+A `claim` **requires a feature id** — its primary collision key, which collides with any sibling session on the same feature even when their files don't overlap — plus an optional path/dir for file-level awareness and a short note (≤200 chars). Re-claiming the same feature updates the note (the claim's age is preserved).
+
+Return values:
+- `CLAIMED` → you're clear, start working.
+- `CLAIMED (conflicts): …` → a sibling holds this feature or an overlapping file. **Stop and surface it** — don't race.
 
 ## Example workflows (bundled skills)
 
-Two example skills ship with the plugin and are auto-discovered — read them for the
-intended usage patterns, then adapt to your project:
+Two example skills ship with the plugin and are auto-discovered:
 
-- **`feature-claim`** — a single session reserving a feature before editing when other
-  sessions may be live.
-- **`fleet-dispatch`** — an orchestrator claim-gating several parallel agents across
-  worktrees so no two duplicate the same work.
+- **`feature-claim`** — a single session reserving a feature before editing when other sessions may be live.
+- **`fleet-dispatch`** — an orchestrator claim-gating several parallel agents across worktrees so no two duplicate the same work. Shows the `id = branch = claim` pattern that catches duplicates three ways simultaneously.
 
-Both center on the one rule: `claim` requires a **reproducible feature id** (the primary
-collision key — collides even across disjoint files). `fleet-dispatch` shows the
-derive-the-id-in-one-place pattern that stops two sessions picking different slugs for
-the same work.
+Both center on the one rule: `claim` requires a **reproducible feature id** (derive it from your tracker, never invent a free-form slug per session, or two sessions pick different slugs for the same work and miss each other).
 
 ## Configuration
 

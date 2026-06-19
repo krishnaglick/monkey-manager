@@ -52,27 +52,30 @@ if (process.argv[2] !== undefined) process.stdout.write(canon(process.argv[2]) +
 
 ## Steps
 
-1. **Select non-overlapping units.** This is the primary guard. The claim is the backstop.
+1. **Select non-overlapping units.** Your up-front selection is the first dedup pass;
+   the claim then locks each unit in before anything is created on disk.
 
-2. **Pre-create one worktree + branch per unit, named by the canonical id:**
+2. **Claim each unit's feature FIRST — before creating its worktree (the gate).** For
+   each unit, derive the canonical id and dispatch the cheap `monkey-manager-scout`
+   (haiku) agent to claim it:
 
    ```bash
    id=$(node canon.mjs 'Issue #412')        # -> 412
-   git worktree add ../wt-$id -b feature-$id
-   # repeat per unit
+   # scout runs: claim feature=$id path=<unit's file scope> note="$id: <summary>"
    ```
 
-3. **Claim each unit's feature BEFORE launching it (the gate).** For each unit,
-   dispatch the cheap `monkey-manager-scout` (haiku) agent to:
-
-   ```
-   claim feature=<id> path=<unit's file scope> note="<id>: <summary>"
-   ```
-
-   - `CLAIMED` → launch the agent into its worktree.
+   - `CLAIMED` → proceed to create its worktree (step 3).
    - `CONFLICT` (same feature, or a shared file a sibling/other fleet holds) →
-     **do NOT launch that unit; surface it to the user.** This is the moment that
-     saves you the duplicate hours.
+     **do NOT create or launch that unit; surface it to the user.** Claiming before
+     the worktree exists means a conflict costs you nothing to back out of — this is
+     the moment that saves you the duplicate hours.
+
+3. **Pre-create one worktree + branch per CLAIMED unit, named by the canonical id:**
+
+   ```bash
+   git worktree add ../wt-$id -b feature-$id
+   # repeat per claimed unit
+   ```
 
 4. **Dispatch** each agent with its `WORKTREE_PATH`, scope, and a scope-lock prompt
    ("touch only these files; don't commit/merge; report gate output verbatim").

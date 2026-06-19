@@ -62,7 +62,16 @@ distinct; the engine won't over-merge.
 4. **Release when done.** `release` drops all your claims (it also happens
    automatically at SessionEnd, and stale claims are TTL-reaped if a session dies).
 
-## When to skip
+## Claim first — even solo
 
-Running genuinely solo — no other live sessions, no fleet. No siblings, no signal.
-The automatic file/branch warnings still cover you if a sibling appears later.
+Claim the feature **first thing, before the first edit — even when you're the only
+live session.** `active` showing no siblings is **not** a reason to skip: a second
+session (a teammate, a `/tsunami` fleet, a future you in another terminal) can appear
+mid-feature, and a claim already on file is what lets the warning fire for them.
+Claiming first is cheap and keeps the discipline uniform, so it never gets forgotten
+on the one run where it mattered.
+
+Coordination stays **advisory** — this is a recommended default, not a hard mutex; the
+engine still never blocks. The automatic file/branch warnings back you up, but they
+only cover files you've *already* touched, so they can't reserve the work *before* the
+first edit the way an up-front claim does.
