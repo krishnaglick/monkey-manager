@@ -9,6 +9,7 @@ import { register, heartbeat, claim, release, check, active, whoami, reap } from
 import { record, reapEvents, stats } from './events.js';
 import { formatConflicts } from './format.js';
 import { resolveIdentity } from './repo.js';
+import { publishActiveSession } from './active.js';
 import { nowSec } from './clock.js';
 
 interface Opts {
@@ -17,17 +18,39 @@ interface Opts {
   now: () => number;
 }
 
-/** Pure, testable tool implementations. */
-export function makeTools(db: DB, sessionId: string, o: Opts) {
+/**
+ * Pure, testable tool implementations.
+ *
+ * `cwd`/`dbPath` enable self-healing: the session row can be reaped mid-session
+ * (TTL idle), after which the core functions would silently no-op (return []).
+ * `ensure()` re-registers before every mutating call so a reaped session heals
+ * instead of producing phantom "CLAIMED" results that write nothing, and
+ * republishes the active-session file so the enforcement hook keeps resolving
+ * this server's identity.
+ */
+export function makeTools(
+  db: DB,
+  sessionId: string,
+  o: Opts,
+  cwd: string = process.cwd(),
+  dbPath?: string,
+) {
+  const ensure = () => {
+    const s = register(db, { session_id: sessionId, cwd }, o.now());
+    if (dbPath) publishActiveSession(dbPath, s.worktree, sessionId);
+    return s;
+  };
   const beat = () => heartbeat(db, sessionId, o.now());
   return {
     check: (a: { paths: string[]; scope?: 'repo' | 'worktree' }) => {
+      ensure();
       beat();
       const c = check(db, sessionId, a.paths, a.scope ?? 'repo', o.now(), o.ttl, o.maxRows);
       record(db, o.now(), 'check', { session_id: sessionId, detail: `conflicts=${c.length}` });
       return c.length ? formatConflicts(c, o.maxRows) : 'CLEAR';
     },
     claim: (a: { feature: string; path?: string; note?: string }) => {
+      ensure();
       const c = claim(db, sessionId, a.feature, a.path ?? null, a.note ?? '', o.now(), o.ttl, o.maxRows);
       record(db, o.now(), 'claim', {
         session_id: sessionId,
@@ -42,6 +65,7 @@ export function makeTools(db: DB, sessionId: string, o: Opts) {
       return 'RELEASED';
     },
     active: (a: { scope?: 'repo' | 'worktree' }) => {
+      ensure();
       beat();
       const rows = active(db, sessionId, a.scope ?? 'repo', o.now(), o.ttl, o.maxRows);
       if (!rows.length) return 'none';
@@ -85,11 +109,14 @@ async function start(): Promise<void> {
   const maxRows = Number(process.env.MONKEY_MANAGER_MAX_ROWS) || 50;
   const sessionId = getSessionId();
 
-  register(db, { session_id: sessionId, cwd: process.cwd() }, nowSec());
+  const me = register(db, { session_id: sessionId, cwd: process.cwd() }, nowSec());
+  // Publish this server's identity so enforcement hooks can resolve claims under
+  // the server's (launch-frozen) session id rather than the live stdin id.
+  publishActiveSession(DB_PATH, me.worktree, sessionId);
   reap(db, nowSec(), ttl);
   reapEvents(db, nowSec());
 
-  const tools = makeTools(db, sessionId, { ttl, maxRows, now: nowSec });
+  const tools = makeTools(db, sessionId, { ttl, maxRows, now: nowSec }, process.cwd(), DB_PATH);
   const server = new McpServer({ name: 'monkey-manager', version: '0.1.0' });
 
   server.registerTool(
