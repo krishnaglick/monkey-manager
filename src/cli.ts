@@ -63,6 +63,9 @@ export function runCommand(
     }
     case 'on-post-edit':
       if (sid && filePath) {
+        // Self-heal: a TTL-reaped session row would make touch() silently no-op.
+        // register() is idempotent (heartbeat if present), so this is cheap.
+        register(db, { session_id: sid, cwd }, now);
         touch(db, sid, filePath, now);
         record(db, now, 'post_edit', { session_id: sid, path: filePath });
       }
